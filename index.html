@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gráfico Dinâmico de Tendências Demográficas</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        /* Estilos personalizados para a fonte Inter e arredondamento */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6; /* Cor de fundo suave */
+        }
+        .container {
+            max-width: 900px;
+            margin: 2rem auto;
+            padding: 1.5rem;
+            background-color: #ffffff;
+            border-radius: 1rem; /* Cantos arredondados */
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            display: flex; /* Usar flexbox para o layout interno */
+            flex-direction: column; /* Empilhar os filhos verticalmente */
+            align-items: center; /* Centralizar os itens horizontalmente */
+        }
+        /* Garantir que o canvas tenha uma altura definida para renderizar */
+        #demographicChart {
+            width: 100% !important; /* Sobrescrever estilos inline do Chart.js, se houver */
+            height: 450px !important; /* Altura explícita ligeiramente maior */
+            max-height: 60vh; /* Altura máxima relativa à altura da viewport */
+            border-radius: 0.75rem; /* Cantos arredondados para o canvas */
+        }
+        /* Estilo para o slider */
+        input[type="range"] {
+            -webkit-appearance: none; /* Remove o estilo padrão do navegador */
+            appearance: none;
+            background: #d1d5db; /* Cor de fundo do trilho */
+            outline: none;
+            height: 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.2s ease-in-out;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            background: #3b82f6; /* Cor do "polegar" (thumb) */
+            border-radius: 50%;
+            border: 2px solid #fff;
+            cursor: grab;
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.5);
+            transition: background 0.2s ease-in-out;
+        }
+
+        input[type="range"]::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            background: #3b82f6;
+            border-radius: 50%;
+            border: 2px solid #fff;
+            cursor: grab;
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.5);
+            transition: background 0.2s ease-in-out;
+        }
+
+        input[type="range"]:hover::-webkit-slider-thumb {
+            background: #2563eb; /* Cor do thumb ao passar o mouse */
+        }
+        input[type="range"]:hover::-moz-range-thumb {
+            background: #2563eb;
+        }
+    </style>
+</head>
+<body class="flex items-center justify-center min-h-screen">
+    <div class="container">
+        <h1 class="text-3xl font-bold text-gray-800 mb-6 text-center rounded-lg p-2 bg-blue-100">
+            Tendências Demográficas: Contagem 2025-2057
+        </h1>
+        <div class="relative w-full">
+            <canvas id="demographicChart"></canvas>
+        </div>
+
+        <!-- Slider for year selection -->
+        <div class="flex flex-col items-center mt-4 w-full px-4">
+            <label for="yearSlider" class="text-lg font-semibold text-gray-700 mb-2">Selecione o Ano:</label>
+            <input type="range" id="yearSlider" min="2025" max="2057" value="2057" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+            <span id="selectedYear" class="text-xl font-bold text-blue-600 mt-2">2057</span>
+        </div>
+
+        <p class="text-sm text-gray-600 mt-6 text-center rounded-lg p-2 bg-gray-100">
+            Este gráfico interativo mostra as projeções de crescimento/queda populacional por faixa etária em Contagem.
+            Use o slider acima para explorar as tendências ao longo dos anos. Passe o mouse sobre as linhas para ver os valores exatos.
+        </p>
+        <p class="text-sm text-gray-500 mt-2 text-center">
+            Fonte: Dados do gráfico original (com interpolação linear para anos intermediários).
+        </p>
+    </div>
+
+    <script>
+        // Dados CSV brutos do arquivo carregado
+        const rawCsvData = `"Crescimento Percentual da População de Contagem, por Ano, Segundo Faixas Etárias, 2025 a 2057",,,,,
+Faixas Etarias,2025,2027,2037,2047,2057
+0 a 4 ,0,-0.051660088228465288,-0.199181564894358,-0.3022405386579986,-0.40459888027346358
+5 a 19,0,-0.023438817853648663,-0.16936000809689281,-0.30870247292601466,-0.41625302216914922
+20 a 44,0,-0.031160642856577082,-0.14663086440288636,-0.26792291424090486,-0.36082436252033195
+45 a 64,0,0.039433225297099646,0.27906590210255133,0.097268226662392709,0.19724670024353613
+65 e mais,0,0.088981381791444547,0.55681310889945113,1.0493815813660357,1.8503331803408976
+`;
+
+        // Função para analisar os dados CSV
+        function parseCsv(csvString) {
+            const lines = csvString.trim().split('\n');
+            const headerLine = lines[1]; // A segunda linha contém os cabeçalhos
+            const headers = headerLine.split(',').map(h => h.trim());
+            const years = headers.slice(1).map(Number); // Os anos são da segunda coluna em diante
+
+            const data = {};
+            for (let i = 2; i < lines.length; i++) { // Começa da terceira linha para os dados
+                const parts = lines[i].split(',').map(p => p.trim());
+                const ageGroup = parts[0].trim(); // Remove espaços para garantir chaves consistentes
+                data[ageGroup] = {};
+                for (let j = 1; j < parts.length; j++) {
+                    data[ageGroup][years[j - 1]] = parseFloat(parts[j]) * 100; // Converte para porcentagem
+                }
+            }
+            return { data, years };
+        }
+
+        const { data: parsedData, years: dataYears } = parseCsv(rawCsvData);
+
+        const startYear = Math.min(...dataYears);
+        const endYear = Math.max(...dataYears);
+
+        // Função para interpolar o valor para um determinado ano usando interpolação linear
+        function getInterpolatedValue(ageGroupLabel, year) {
+            const trimmedAgeGroupLabel = ageGroupLabel.trim(); // Garante que o rótulo seja aparado para a busca
+            const knownPoints = parsedData[trimmedAgeGroupLabel];
+            
+            if (!knownPoints) {
+                console.error(`Dados para a faixa etária "${trimmedAgeGroupLabel}" não encontrados. Verifique a consistência dos rótulos.`);
+                return 0; // Retorna um valor padrão ou trata o erro apropriadamente
+            }
+
+            const sortedYears = Object.keys(knownPoints).map(Number).sort((a, b) => a - b);
+
+            if (year <= sortedYears[0]) return knownPoints[sortedYears[0]];
+            if (year >= sortedYears[sortedYears.length - 1]) return knownPoints[sortedYears[sortedYears.length - 1]];
+
+            let x1, y1, x2, y2;
+            for (let i = 0; i < sortedYears.length - 1; i++) {
+                if (year >= sortedYears[i] && year <= sortedYears[i + 1]) {
+                    x1 = sortedYears[i];
+                    y1 = knownPoints[x1];
+                    x2 = sortedYears[i + 1];
+                    y2 = knownPoints[x2];
+                    break;
+                }
+            }
+
+            // Fórmula de interpolação linear
+            return y1 + (y2 - y1) * ((year - x1) / (x2 - x1));
+        }
+
+        // Gera todos os rótulos de ano para o intervalo do slider
+        const allYearsLabels = [];
+        for (let year = startYear; year <= endYear; year++) {
+            allYearsLabels.push(year.toString());
+        }
+
+        // Define a estrutura base para os conjuntos de dados com cores
+        // IMPORTANTE: Estes rótulos devem corresponder EXATAMENTE aos rótulos aparados do CSV após a análise
+        const baseDatasetsConfig = [
+            { label: '0 a 4', borderColor: '#a855f7', backgroundColor: 'rgba(168, 85, 247, 0.2)' },
+            { label: '5 a 19', borderColor: '#ef4444', backgroundColor: 'rgba(239, 68, 68, 0.2)' },
+            { label: '20 a 44', borderColor: '#f97316', backgroundColor: 'rgba(249, 115, 22, 0.2)' },
+            { label: '45 a 64', borderColor: '#22c55e', backgroundColor: 'rgba(34, 197, 94, 0.2)' },
+            { label: '65 e mais', borderColor: '#3b82f6', backgroundColor: 'rgba(59, 130, 246, 0.2)' }
+        ];
+
+        // Prepara os conjuntos de dados completos com dados interpolados para todos os anos no intervalo
+        const fullDatasets = baseDatasetsConfig.map(datasetConfig => {
+            const interpolatedData = [];
+            for (let year = startYear; year <= endYear; year++) {
+                interpolatedData.push(getInterpolatedValue(datasetConfig.label, year));
+            }
+            return {
+                ...datasetConfig,
+                data: interpolatedData,
+                fill: false,
+                tension: 0.3, // Aplica tensão para curvas mais suaves
+                pointRadius: 6,
+                pointBackgroundColor: datasetConfig.borderColor,
+                pointBorderColor: '#fff',
+                pointBorderWidth: 2,
+                pointHoverRadius: 8,
+                pointHitRadius: 8,
+                showLine: true
+            };
+        });
+
+        // Configuração do Chart.js
+        const chartConfig = {
+            type: 'line',
+            data: {
+                labels: allYearsLabels,
+                datasets: fullDatasets
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'Estimativa de Crescimento Populacional por Faixa Etária',
+                        font: { size: 18, weight: 'bold' },
+                        color: '#333'
+                    },
+                    tooltip: {
+                        mode: 'index',
+                        intersect: false,
+                        callbacks: {
+                            label: function(context) {
+                                let label = context.dataset.label || '';
+                                if (label) { label += ': '; }
+                                if (context.parsed.y !== null) { label += context.parsed.y.toFixed(1) + '%'; }
+                                return label;
+                            }
+                        }
+                    },
+                    legend: { position: 'top' }
+                },
+                interaction: {
+                    mode: 'nearest',
+                    axis: 'x',
+                    intersect: false
+                },
+                scales: {
+                    y: {
+                        beginAtZero: false,
+                        title: {
+                            display: true,
+                            text: 'Variação Percentual (%)',
+                            font: { size: 14 },
+                            color: '#555'
+                        },
+                        ticks: {
+                            callback: function(value) { return value + '%'; }
+                        }
+                    },
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Ano',
+                            font: { size: 14 },
+                            color: '#555'
+                        },
+                        grid: { display: false }
+                    }
+                }
+            }
+        };
+
+        let myChart; // Variável para armazenar a instância do gráfico
+
+        // Renderiza o gráfico e configura o slider quando a janela é carregada
+        window.onload = function() {
+            const ctx = document.getElementById('demographicChart').getContext('2d');
+            myChart = new Chart(ctx, chartConfig);
+
+            const yearSlider = document.getElementById('yearSlider');
+            const selectedYearSpan = document.getElementById('selectedYear');
+
+            // Inicializa o slider e o texto com o valor padrão
+            yearSlider.min = startYear;
+            yearSlider.max = endYear;
+            yearSlider.value = endYear; // Começa com o ano final
+            selectedYearSpan.textContent = yearSlider.value;
+
+            // Adiciona um ouvinte de eventos para o slider
+            yearSlider.addEventListener('input', function() {
+                const currentYear = parseInt(this.value);
+                selectedYearSpan.textContent = currentYear;
+
+                // Se o ano atual for o ano final, restaura os dados completos
+                if (currentYear === endYear) {
+                    myChart.data = {
+                        labels: allYearsLabels,
+                        datasets: fullDatasets.map(d => ({ ...d, data: [...d.data] })) // Cópia profunda do array de dados
+                    };
+                } else {
+                    // Caso contrário, fatia os dados até o ano atual
+                    const yearIndex = allYearsLabels.indexOf(currentYear.toString());
+                    let dataSliceEndIndex = yearIndex + 1;
+
+                    // Garante que pelo menos dois pontos sejam mostrados para 2025 para desenhar uma linha
+                    if (currentYear === startYear && allYearsLabels.length > 1) {
+                        dataSliceEndIndex = 2; // Mostra 2025 e 2026 para desenhar o segmento inicial
+                    }
+
+                    myChart.data.labels = allYearsLabels.slice(0, dataSliceEndIndex);
+                    myChart.data.datasets.forEach(dataset => {
+                        const originalDataset = fullDatasets.find(fd => fd.label === dataset.label);
+                        dataset.data = originalDataset.data.slice(0, dataSliceEndIndex);
+                    });
+                }
+                
+                // Atualiza o gráfico
+                myChart.update();
+            });
+
+            // Dispara a atualização inicial para desenhar o gráfico corretamente no valor padrão
+            yearSlider.dispatchEvent(new Event('input'));
+        };
+    </script>
+</body>
+</html>
